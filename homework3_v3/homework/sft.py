@@ -1,5 +1,9 @@
 from .base_llm import BaseLLM
 from .data import Dataset, benchmark
+import torch, random, numpy as np
+torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
 
 def load() -> BaseLLM:
     from pathlib import Path
@@ -42,16 +46,16 @@ def tokenize(tokenizer, question: str, answer: str):
     return full
 
 def format_example(prompt: str, answer) -> dict[str, str]:
+    # Format the answer exactly to 6 decimals.
     if isinstance(answer, float):
-        if answer.is_integer():
-            answer = str(int(answer))
-        else:
-            answer = f"{answer:.4f}"
+        answer = f"{answer:.6f}"
     else:
         answer = str(answer)
-    question = f"{prompt}\n<answer>"
-    answer = f"{answer}</answer>"
+    # DO NOT add extra instruction in prompt, just the actual question!
+    question = prompt
+    answer = f"<answer>{answer}</answer>"
     return {"question": question, "answer": answer}
+
 
 class TokenizedDataset:
     def __init__(self, tokenizer, data: Dataset, format_fn):
@@ -119,7 +123,7 @@ def train_model(
         task_type=TaskType.CAUSAL_LM,
         inference_mode=False,
         r=8,
-        lora_alpha=16,
+        lora_alpha=32,
         lora_dropout=0.1,
     )
     llm.model = get_peft_model(llm.model, peft_config)
@@ -155,6 +159,11 @@ def train_model(
 
     # Save model (LoRA adapter only)
     llm.model.save_pretrained(output_dir)
+    for i in range(5):
+        prompt = format_example(*trainset[i])["question"]
+        print("Train Q:", trainset[i][0])
+        print("Expected:", trainset[i][1])
+        print("Model output:", llm.generate(prompt))
 
     # Evaluate immediately after training
     test_model(output_dir)
