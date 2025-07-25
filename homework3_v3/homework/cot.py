@@ -1,7 +1,15 @@
 from .base_llm import BaseLLM
-
+from .base_llm import BaseLLM
+from pathlib import Path
+from peft import PeftModel
 
 class CoTModel(BaseLLM):
+    def __init__(self):
+        super().__init__()
+        model_path = Path(__file__).parent / "sft_model"
+        self.model = PeftModel.from_pretrained(self.model, model_path).to(self.device)
+        self.model.eval()
+
     def format_prompt(self, question: str) -> str:
         """
         Formats the question using the tokenizer's chat template for better LLM results.
