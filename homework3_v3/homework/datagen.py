@@ -2,8 +2,8 @@ import random
 import json
 from tqdm import tqdm
 
-from homework3_v3.homework import Dataset
-from homework3_v3.homework.cot import CoTModel
+from .data import Dataset
+from .cot import CoTModel as CoTModel
 
 # Supported units and their conversion logic
 CONVERSIONS = {
@@ -46,6 +46,7 @@ def generate_dataset_basic(n=1000):
 
 def generate_dataset(output_file="data/rft.json", num_samples_per_q=10):
     data = Dataset("train")
+    print(f"Loaded {len(data)} examples from Dataset('train')")
     cot_model = CoTModel()
 
     final_data = []
@@ -58,7 +59,9 @@ def generate_dataset(output_file="data/rft.json", num_samples_per_q=10):
             )
 
         found = False
+
         for g in generations:
+            print(f"Processing generation: {g}")
             if "<answer>" in g and "</answer>" in g:
                 try:
                     answer_str = g.split("<answer>")[1].split("</answer>")[0]
@@ -67,16 +70,34 @@ def generate_dataset(output_file="data/rft.json", num_samples_per_q=10):
                         final_data.append([question, expected, g])
                         found = True
                         break
-                except:
+                except Exception as e:
+                    print(f"Error parsing generation: {e}")
                     continue
         if not found:
+            print(f"No valid generation found for question: {question}")
             continue
 
+    if not final_data:
+        print("No data to save. Exiting...")
+        return
+
+    # Ensure the directory exists
+    import os
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
     with open(output_file, "w") as f:
+        print(f"Saving {len(final_data)} examples to {output_file}...")
         json.dump(final_data, f, indent=2)
-    print(f"Saved {len(final_data)} examples to {output_file}")
+        print(f"Saved {len(final_data)} examples to {output_file}")
+
+print("Data generation module loaded.")
 
 if __name__ == "__main__":
-    for i in range(10):
+    # Preview 5 examples (optional)
+    for i in range(5):
         q, a = make_example()
         print(f"Q{i+1}: {q}\nA{i+1}: {a}\n")
+
+    # ✅ Run dataset generation
+    generate_dataset(output_file="data/rft.json", num_samples_per_q=1)
+
