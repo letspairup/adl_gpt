@@ -1,54 +1,17 @@
 import random
 import json
+import os
 from tqdm import tqdm
 
 from .data import Dataset
-from .cot import CoTModel as CoTModel
+from .cot import CoTModel
+from fire import Fire
 
-# Supported units and their conversion logic
-CONVERSIONS = {
-    ("hour", "minute"): lambda x: x * 60,
-    ("hour", "second"): lambda x: x * 3600,
-    ("minute", "second"): lambda x: x * 60,
-    ("day", "hour"): lambda x: x * 24,
-    ("week", "day"): lambda x: x * 7,
-    ("year", "week"): lambda x: x * 52.1775,
-    ("century", "year"): lambda x: x * 100,
-    ("kg", "gram"): lambda x: x * 1000,
-    ("kg", "pound"): lambda x: x * 2.20462,
-    ("GB", "MB"): lambda x: x * 1000,
-    ("MB", "kB"): lambda x: x * 1000,
-    ("kB", "bit"): lambda x: x * 8192,
-    ("liter", "ml"): lambda x: x * 1000,
-    ("gallon", "liter"): lambda x: x * 3.78541,
-    ("quart", "pint"): lambda x: x * 2,
-}
 
-PHRASINGS = [
-    "Convert {qty} {from_unit} to {to_unit}.",
-    "How many {to_unit} are in {qty} {from_unit}?",
-    "Please convert {qty} {from_unit} into {to_unit}.",
-    "{qty} {from_unit} equals how many {to_unit}?",
-    "What is {qty} {from_unit} in {to_unit}?"
-]
-
-def make_example():
-    (from_unit, to_unit), func = random.choice(list(CONVERSIONS.items()))
-    qty = round(random.uniform(1, 500), 2)
-    prompt_template = random.choice(PHRASINGS)
-    question = prompt_template.format(qty=qty, from_unit=from_unit, to_unit=to_unit)
-    answer_val = func(qty)
-    answer_str = f"<answer>{answer_val:.6f}</answer>"
-    return question, answer_str
-
-def generate_dataset_basic(n=1000):
-    return [make_example() for _ in range(n)]
-
-def generate_dataset(output_file="data/rft.json", num_samples_per_q=10):
-    data = Dataset("train")
+def generate_dataset(output_file="data/rft.json", num_samples_per_q=10, max_examples=1000):
+    data = Dataset("train")[:max_examples]
     print(f"Loaded {len(data)} examples from Dataset('train')")
     cot_model = CoTModel()
-
     final_data = []
 
     for question, expected in tqdm(data, desc="Generating RFT dataset"):
@@ -59,45 +22,58 @@ def generate_dataset(output_file="data/rft.json", num_samples_per_q=10):
             )
 
         found = False
-
         for g in generations:
-            print(f"Processing generation: {g}")
             if "<answer>" in g and "</answer>" in g:
                 try:
                     answer_str = g.split("<answer>")[1].split("</answer>")[0]
                     pred = float(answer_str)
-                    if abs(pred - float(expected)) < 1e-2:
-                        final_data.append([question, expected, g])
+
+                    expected_rounded = round(float(expected), 2)
+                    pred_rounded = round(pred, 2)
+
+                    if abs(pred_rounded - expected_rounded) < 0.05:
+                        # Extract only the reasoning part
+                        lines = g.strip().splitlines()
+                        reasoning_lines = [
+                            line.strip() for line in lines
+                            if ("<answer>" in line) or ("=" in line) or ("*" in line)
+                        ]
+                        reasoning = " ".join(reasoning_lines).strip()
+
+                        # Fallback to entire generation if no reasoning found
+                        if not reasoning:
+                            reasoning = g.strip()
+
+                        # Ensure answer is present
+                        if "<answer>" not in reasoning:
+                            reasoning += f" <answer>{pred:.6f}</answer>"
+
+                        final_data.append([question, expected, reasoning])
+                        print("✓ Reasoning kept:", reasoning)
                         found = True
                         break
                 except Exception as e:
                     print(f"Error parsing generation: {e}")
                     continue
         if not found:
-            print(f"No valid generation found for question: {question}")
+            print(f"✗ No valid generation for: {question}")
             continue
 
     if not final_data:
         print("No data to save. Exiting...")
         return
 
-    # Ensure the directory exists
-    import os
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
     with open(output_file, "w") as f:
-        print(f"Saving {len(final_data)} examples to {output_file}...")
+        print(f"\nSaving {len(final_data)} examples to {output_file}...")
         json.dump(final_data, f, indent=2)
-        print(f"Saved {len(final_data)} examples to {output_file}")
+        print("✅ Saved!")
 
-print("Data generation module loaded.")
+
+def cli(max_examples=1, output_file="data/rft.json", num_samples_per_q=1):
+    generate_dataset(output_file=output_file, num_samples_per_q=num_samples_per_q, max_examples=max_examples)
+
 
 if __name__ == "__main__":
-    # Preview 5 examples (optional)
-    for i in range(5):
-        q, a = make_example()
-        print(f"Q{i+1}: {q}\nA{i+1}: {a}\n")
-
-    # ✅ Run dataset generation
-    generate_dataset(output_file="data/rft.json", num_samples_per_q=1)
-
+    Fire(cli)

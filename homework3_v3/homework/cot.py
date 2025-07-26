@@ -12,8 +12,6 @@ class CoTModel(BaseLLM):
     def format_prompt(self, question: str) -> str:
         # Use raw question — SFT model already trained on this format
         return question
-
-
 def load() -> CoTModel:
     return CoTModel()
 

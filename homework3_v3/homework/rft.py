@@ -57,8 +57,8 @@ def train_model(output_dir: str, epochs=3, batch_size=8, lr=2e-4, **kwargs):
     peft_config = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         inference_mode=False,
-        r=16,
-        lora_alpha=32,
+        r=32,
+        lora_alpha=64,
         lora_dropout=0.1,
     )
     llm.model = get_peft_model(llm.model, peft_config)
