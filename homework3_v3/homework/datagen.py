@@ -1,8 +1,9 @@
 import random
 import json
 from tqdm import tqdm
-from .cot import CoTModel
-from .data import Dataset
+
+from homework3_v3.homework import Dataset
+from homework3_v3.homework.cot import CoTModel
 
 # Supported units and their conversion logic
 CONVERSIONS = {
