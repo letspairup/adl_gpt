@@ -31,18 +31,32 @@ class BaseLLM:
             return float("nan")
 
     def generate(self, prompt: str) -> str:
-        """
-        Simple (non-batched) generation method.
-        """
+        self.tokenizer.padding_side = "left"
+        self.tokenizer.pad_token = self.tokenizer.eos_token
+
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
-        output_ids = self.model.generate(
-            **inputs,
-            max_new_tokens=100,
-            do_sample=False,
-            temperature=0.0,
-            pad_token_id=self.tokenizer.eos_token_id
-        )
-        return self.tokenizer.decode(output_ids[0], skip_special_tokens=True)
+        input_ids = inputs["input_ids"]
+        attention_mask = inputs["attention_mask"]
+
+        max_new_tokens = 100
+        generated = input_ids.clone()
+
+        for _ in range(max_new_tokens):
+            outputs = self.model(input_ids=generated, attention_mask=attention_mask)
+            next_token_logits = outputs.logits[:, -1, :]
+            next_token = torch.argmax(next_token_logits, dim=-1).unsqueeze(-1)
+
+            generated = torch.cat([generated, next_token], dim=-1)
+
+            # Update attention mask
+            attention_mask = torch.cat(
+                [attention_mask, torch.ones_like(next_token)], dim=-1
+            )
+
+            if next_token.item() == self.tokenizer.eos_token_id:
+                break
+
+        return self.tokenizer.decode(generated[0], skip_special_tokens=True)
 
     def batched_generate(
             self, prompts: list[str], num_return_sequences: int = 1, temperature: float = 0
