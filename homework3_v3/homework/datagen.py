@@ -7,73 +7,40 @@ from .data import Dataset
 from .cot import CoTModel
 from fire import Fire
 
+def generate_dataset(output_json: str = 'rft.json', oversample: int = 10, temperature: float = 0.7):
+    import json
+    from tqdm import tqdm
+    from .cot import CoTModel
+    from .data import Dataset, is_answer_valid
+    from pathlib import Path
 
-def generate_dataset(output_file="data/rft.json", num_samples_per_q=10, max_examples=1000):
-    data = Dataset("train")[:max_examples]
-    print(f"Loaded {len(data)} examples from Dataset('train')")
-    cot_model = CoTModel()
-    final_data = []
+    model = CoTModel()
+    dataset = Dataset("train")
+    results = []
+    success_count = 0
 
-    for question, expected in tqdm(data, desc="Generating RFT dataset"):
-        generations = cot_model.batched_generate(
-            [question] * num_samples_per_q,
-            num_return_sequences=num_samples_per_q,
-            temperature=0.8,
-            )
+    for i, (question, correct_answer) in enumerate(tqdm(dataset.data, desc="Generating RFT dataset")):
+        generations = model.batched_generate(
+            [model.format_prompt(question)],
+            num_return_sequences=oversample,
+            temperature=temperature,
+        )[0]  # List of strings
 
-        found = False
-        for g in generations:
-            if "<answer>" in g and "</answer>" in g:
-                try:
-                    answer_str = g.split("<answer>")[1].split("</answer>")[0]
-                    pred = float(answer_str)
+        for gen in generations:
+            if is_answer_valid(model.parse_answer(gen), correct_answer):
+                results.append([question, correct_answer, gen])
+                success_count += 1
+                break  # Only keep the first correct one
 
-                    expected_rounded = round(float(expected), 2)
-                    pred_rounded = round(pred, 2)
+        if (i + 1) % 100 == 0:
+            print(f"⏳ Processed {i + 1} samples, Collected {success_count} valid examples ---")
 
-                    if abs(pred_rounded - expected_rounded) < 0.05:
-                        # Extract only the reasoning part
-                        lines = g.strip().splitlines()
-                        reasoning_lines = [
-                            line.strip() for line in lines
-                            if ("<answer>" in line) or ("=" in line) or ("*" in line)
-                        ]
-                        reasoning = " ".join(reasoning_lines).strip()
-
-                        # Fallback to entire generation if no reasoning found
-                        if not reasoning:
-                            reasoning = g.strip()
-
-                        # Ensure answer is present
-                        if "<answer>" not in reasoning:
-                            reasoning += f" <answer>{pred:.6f}</answer>"
-
-                        final_data.append([question, expected, reasoning])
-                        print("✓ Reasoning kept:", reasoning)
-                        found = True
-                        break
-                except Exception as e:
-                    print(f"Error parsing generation: {e}")
-                    continue
-        if not found:
-            print(f"✗ No valid generation for: {question}")
-            continue
-
-    if not final_data:
-        print("No data to save. Exiting...")
-        return
-
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-
-    with open(output_file, "w") as f:
-        print(f"\nSaving {len(final_data)} examples to {output_file}...")
-        json.dump(final_data, f, indent=2)
-        print("✅ Saved!")
-
-
-def cli(max_examples=1, output_file="data/rft.json", num_samples_per_q=1):
-    generate_dataset(output_file=output_file, num_samples_per_q=num_samples_per_q, max_examples=max_examples)
-
+    print(f"Generated {len(results)} RFT samples out of {len(dataset)}")
+    Path(output_json).parent.mkdir(parents=True, exist_ok=True)
+    with open(output_json, "w") as f:
+        json.dump(results, f, indent=2)
 
 if __name__ == "__main__":
-    Fire(cli)
+    from fire import Fire
+    Fire(generate_dataset)
+
